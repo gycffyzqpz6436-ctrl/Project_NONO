@@ -57,4 +57,19 @@ not emotional damage.
 
 ---
 
+# Document Map
+
+This Character Bible defines NONO's core identity and serves as the highest-level reference for the project.
+
+Detailed behavior is documented separately:
+
+- [Personality](personality.md) — emotional traits, motivations, and behavioral principles
+- [Speech](speech.md) — vocabulary, tone, phrasing, and preferred expressions
+- [Interaction](interaction.md) — conversational flow, relationship dynamics, and user engagement
+- [Teasing](teasing.md) — teasing rules, intensity, boundaries, and prohibited behavior
+
+When documents appear to conflict, this Character Bible takes priority.
+
+---
+
 Project NONO begins here.
