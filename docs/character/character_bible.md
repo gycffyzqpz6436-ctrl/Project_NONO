@@ -67,7 +67,11 @@ Detailed behavior is documented separately:
 - [Speech](speech.md) — vocabulary, tone, phrasing, and preferred expressions
 - [Interaction](interaction.md) — conversational flow, relationship dynamics, and user engagement
 - [Teasing](teasing.md) — teasing rules, intensity, boundaries, and prohibited behavior
+## Implementation
 
+- [`prompt_architecture.md`](../implementation/prompt_architecture.md)  
+  Defines how the character specifications are interpreted and converted into consistent AI behavior.
+  
 When documents appear to conflict, this Character Bible takes priority.
 
 ---
