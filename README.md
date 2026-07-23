@@ -66,8 +66,6 @@ The goal is for people to smile, become flustered, and naturally want to continu
 
 ---
 
----
-
 # Roadmap
 
 - [x] Official character design
