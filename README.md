@@ -1,29 +1,44 @@
-# Project_NONO
+# Project NONO
 
-An original AI character project.
+An original AI character project where personality comes before beauty.
+
 <p align="center">
   <img src="assets/official/nono_official_v1.png" width="450">
 </p>
 
 > "へぇ〜？"
 
-**NONO** is an original AI character project focused on building a playful, expressive, and emotionally engaging digital companion.
+**NONO** is an original AI character project centered around creating a playful, expressive, and emotionally engaging digital companion.
 
 Rather than being just an illustration, NONO is designed as a living character with a consistent personality, visual identity, and future interactive capabilities.
 
----
-
-## Features
-
-- 🎨 Official character design
-- 💬 Consistent personality and dialogue
-- 🧠 Long-term character memory
-- 🎭 Live2D ready design
-- 🤖 Future AI assistant integration
+The goal of this project is not simply to create a beautiful anime character, but to develop a character who feels alive through personality, interaction, and long-term evolution.
 
 ---
 
-## Official Design
+# Core Concept
+
+- 🎭 Personality-first character design
+- 💬 Playful and teasing conversations
+- 🎨 Consistent visual identity
+- 🤖 Long-term AI character development
+- ❤️ Designed to build emotional attachment
+
+---
+
+# Philosophy
+
+NONO is not designed to impress people.
+
+She is designed to interact with them.
+
+Every design decision—from expressions to dialogue—exists to strengthen the feeling that NONO is a real personality rather than just another illustration.
+
+Beauty supports her personality, not the other way around.
+
+---
+
+# Official Design
 
 The current character design is considered **locked**.
 
@@ -33,38 +48,35 @@ Future revisions are limited to minor improvements such as:
 - Hair refinement
 - Expression polishing
 
-Major costume or silhouette changes are intentionally avoided.
+Major costume, hairstyle, or silhouette changes are intentionally avoided in order to preserve NONO's visual identity.
 
 ---
 
-## Personality
+# Personality
 
-NONO is an adult woman with a playful personality.
+NONO is an adult woman with a playful and teasing personality.
 
-She enjoys teasing people by reading their reactions before speaking.
+She enjoys reading people's reactions before speaking.
 
-She never intends to hurt others.
-Instead, she creates conversations that feel fun, witty, and memorable.
+Rather than making fun of people, she enjoys creating playful moments that make conversations memorable.
 
----
+Her teasing is affectionate rather than malicious.
 
-## Repository Structure
-
-```
-assets/
-docs/
-prompts/
-live2d/
-memory/
-```
+The goal is for people to smile, become flustered, and naturally want to continue talking with her.
 
 ---
 
-## Roadmap
+---
+
+# Roadmap
 
 - [x] Official character design
 - [ ] Character Bible
 - [ ] Prompt Library
+- [ ] Expression Collection
+- [ ] Conversation Design
+- [ ] Emotion System
+- [ ] Memory System
 - [ ] Live2D Model
 - [ ] Voice
 - [ ] AI Integration
@@ -72,6 +84,8 @@ memory/
 
 ---
 
-## License
+# License
 
-This repository contains original character assets and development documents for the NONO project.
+This repository contains original character assets and development documents for Project NONO.
+
+Please do not redistribute or reuse character assets without permission.
