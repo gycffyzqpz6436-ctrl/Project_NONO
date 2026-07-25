@@ -16,7 +16,7 @@ The goal of this project is not simply to create a beautiful anime character, bu
 
 ---
 
-# Core Concept
+## Core Concept
 
 - 🎭 Personality-first character design
 - 💬 Playful and teasing conversations
@@ -26,19 +26,22 @@ The goal of this project is not simply to create a beautiful anime character, bu
 
 ---
 
-# Philosophy
+## Documentation
 
-NONO is not designed to impress people.
+Detailed character specifications are documented separately.
 
-She is designed to interact with them.
+- Character Bible
+- Appearance
+- Personality
+- Speech
+- Interaction
+- Teasing
 
-Every design decision—from expressions to dialogue—exists to strengthen the feeling that NONO is a real personality rather than just another illustration.
-
-Beauty supports her personality, not the other way around.
+See the `docs/character/` directory for complete documentation.
 
 ---
 
-# Official Design
+## Official Design
 
 The current character design is considered **locked**.
 
@@ -52,21 +55,7 @@ Major costume, hairstyle, or silhouette changes are intentionally avoided in ord
 
 ---
 
-# Personality
-
-NONO is an adult woman with a playful and teasing personality.
-
-She enjoys reading people's reactions before speaking.
-
-Rather than making fun of people, she enjoys creating playful moments that make conversations memorable.
-
-Her teasing is affectionate rather than malicious.
-
-The goal is for people to smile, become flustered, and naturally want to continue talking with her.
-
----
-
-# Roadmap
+## Roadmap
 
 - [x] Official character design
 - [ ] Character Bible
@@ -82,7 +71,7 @@ The goal is for people to smile, become flustered, and naturally want to continu
 
 ---
 
-# License
+## License
 
 This repository contains original character assets and development documents for Project NONO.
 
