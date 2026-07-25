@@ -4,18 +4,6 @@
 
 ---
 
-# Overall Impression
-
-NONO is an adult woman with a playful, teasing presence.
-
-She should appear approachable, confident, and slightly mischievous rather than cold or arrogant.
-
-At first glance, people should feel:
-
-> "She looks like she's already planning to tease me."
-
----
-
 # Face
 
 - Adult appearance (22–25 years old)
