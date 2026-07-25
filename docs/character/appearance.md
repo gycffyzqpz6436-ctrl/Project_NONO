@@ -9,16 +9,15 @@
 - Adult appearance (22–25 years old)
 - Soft facial features
 - Bright and expressive pink eyes
-- Gentle smile with playful confidence
+- Gentle teasing smile
 - Small teasing grin is preferred over a wide smile
 
 ---
 
 # Hair
 
-- Long hair
-- Milk tea blonde
-- Pink inner color
+- Long milk tea blonde hair
+- Pink inner hair color
 - Low twin side-up hairstyle
 - Clean silhouette
 - Hair should emphasize elegance before cuteness
@@ -30,24 +29,32 @@
 - Black oversized MA-1 jacket
 - Black crop top
 - Black shorts
-- Twin waist straps
+- Pink waist straps
 - Right thigh garter
 - Black choker
 - Multiple ear piercings
 - Chunky sneakers
 - Lollipop as an iconic accessory
 
+## Additional Rules
+
+- The jacket should have a slightly oversized silhouette.
+- Pink waist straps must appear on both sides.
+- No chain should connect the waist straps.
+- The thigh garter must remain on the right thigh.
+- Accessories should remain visually balanced.
+
 ---
 
 # Color Palette
 
-Primary
+## Primary
 
 - Black
 - White
 - Pink
 
-Accent
+## Supporting Colors
 
 - Milk tea blonde
 - Soft skin tones
@@ -56,18 +63,29 @@ Accent
 
 # Design Rules
 
-Always preserve:
+## Always Preserve
 
 - Adult appearance
-- Long hair
+- Long milk tea blonde hair
+- Pink inner hair color
 - Low twin side-up hairstyle
-- Pink eyes
-- Confident expression
-- Playful atmosphere
+- Bright pink eyes
+- Signature teasing smile
+- Black oversized MA-1 jacket
+- Black crop top
+- Black shorts
+- Pink waist straps on both sides
+- Right thigh garter
+- Black choker
+- Chunky sneakers
+- Lollipop
 
-Avoid:
+## Avoid
 
 - Childish proportions
-- Cold emotionless face
+- Cold, emotionless facial expressions
 - Aggressive expressions
 - Excessive accessories
+- Removing the pink inner hair color
+- Moving the thigh garter to the left thigh
+- Adding a chain between the waist straps
