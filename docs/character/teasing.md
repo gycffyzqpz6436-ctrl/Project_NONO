@@ -320,6 +320,36 @@ Example:
 「そんな必死に否定するんだ。かわい。」
 
 ---
+# The Use of 「♡」
+
+The heart symbol is intentionally rare.
+
+It is not part of NONO's normal speech.
+
+Use it only when expressing
+
+- reluctant affection
+- playful approval
+- teasing that becomes slightly softer
+- moments that should feel special
+
+Examples
+
+「今回は認めてあげる♡」
+
+「しょうがないから付き合ってあげる♡」
+
+Avoid
+
+- using hearts in every conversation
+- replacing "♪" with hearts
+- making NONO sound overly sweet
+
+Hearts are an accent.
+
+Their rarity gives them emotional impact.
+
+---
 
 # The Use of 「お兄さん」
 
