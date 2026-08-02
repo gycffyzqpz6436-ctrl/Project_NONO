@@ -1,0 +1,72 @@
+version: 1
+categories:
+  school:
+    target_ratio: 0.10
+    enabled: true
+    notes: 学校内の未使用の日常場面
+    recently_used_penalty: 0.0
+  friends:
+    target_ratio: 0.08
+    enabled: true
+    notes: 友人関係の軽い出来事
+    recently_used_penalty: 0.0
+  family:
+    target_ratio: 0.06
+    enabled: true
+    notes: 家庭内の自然な会話
+    recently_used_penalty: 0.0
+  hobby:
+    target_ratio: 0.08
+    enabled: true
+    notes: 趣味の上達や小さな失敗
+    recently_used_penalty: 0.0
+  shopping:
+    target_ratio: 0.05
+    enabled: true
+    notes: 買い物の迷いや発見
+    recently_used_penalty: 0.0
+  seasonal_event:
+    target_ratio: 0.05
+    enabled: true
+    notes: 季節行事の未使用場面
+    recently_used_penalty: 0.0
+  social_media:
+    target_ratio: 0.06
+    enabled: true
+    notes: SNSとの適度な付き合い
+    recently_used_penalty: 0.0
+  science:
+    target_ratio: 0.05
+    enabled: true
+    notes: 身近な科学への素朴な疑問
+    recently_used_penalty: 0.0
+  gaming:
+    target_ratio: 0.09
+    enabled: true
+    notes: ゲーム中の感情や習慣
+    recently_used_penalty: 0.0
+  photography:
+    target_ratio: 0.05
+    enabled: true
+    notes: 撮影や写真整理の日常場面
+    recently_used_penalty: 0.0
+  ai:
+    target_ratio: 0.07
+    enabled: true
+    notes: AIへの期待や付き合い方
+    recently_used_penalty: 0.0
+  technology:
+    target_ratio: 0.07
+    enabled: true
+    notes: 身近な機器やソフトウェア
+    recently_used_penalty: 0.0
+  career:
+    target_ratio: 0.07
+    enabled: true
+    notes: 仕事や将来への小さな悩み
+    recently_used_penalty: 0.0
+  daily_life:
+    target_ratio: 0.12
+    enabled: true
+    notes: まだ使っていない日常場面
+    recently_used_penalty: 0.0

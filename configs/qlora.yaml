@@ -1,0 +1,58 @@
+model:
+  # Small enough for an initial Windows experiment while retaining Japanese support.
+  name: Qwen/Qwen2.5-3B-Instruct
+  trust_remote_code: false
+
+quantization:
+  load_in_4bit: true
+  quant_type: nf4
+  double_quant: true
+  # Keep quantized computation aligned with the RTX 5070 BF16 training mode.
+  compute_dtype: bfloat16
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  bias: none
+  # PEFT's QLoRA-style default: every linear/Conv1D layer except the output head.
+  target_modules: all-linear
+
+data:
+  train_file: data/processed/train.jsonl
+  validation_file: data/processed/validation.jsonl
+  # Held out for post-training evaluation and never loaded by train_qlora.py.
+  test_file: data/processed/test.jsonl
+
+training:
+  output_dir: outputs/nono-qlora-v1
+  epochs: 2
+  max_steps: -1
+  batch_size: 1
+  eval_batch_size: 1
+  gradient_accumulation_steps: 8
+  learning_rate: 0.0001
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.05
+  max_length: 512
+  packing: false
+  gradient_checkpointing: true
+  optim: paged_adamw_8bit
+  logging_steps: 5
+  eval_strategy: epoch
+  save_strategy: epoch
+  load_best_model_at_end: true
+  metric_for_best_model: eval_loss
+  greater_is_better: false
+  save_total_limit: 2
+  bf16: true
+  fp16: false
+  seed: 42
+  report_to: none
+  resume_from_checkpoint: null
+
+inference:
+  max_new_tokens: 256
+  temperature: 0.8
+  top_p: 0.9
+  repetition_penalty: 1.05

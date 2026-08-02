@@ -39,6 +39,9 @@ Detailed character specifications are documented separately.
 
 See the `docs/character/` directory for complete documentation.
 
+Dataset generation and review automation is documented in
+[`docs/dataset_automation.md`](docs/dataset_automation.md).
+
 ---
 
 ## Official Design
@@ -68,6 +71,15 @@ Major costume, hairstyle, or silhouette changes are intentionally avoided in ord
 - [ ] Voice
 - [ ] AI Integration
 - [ ] Desktop Companion
+
+---
+
+## Local QLoRA Training
+
+Windows上で日本語messages JSONLを検証・結合・分割し、Transformers、PEFT、
+TRLでNONOのQLoRAアダプターを学習してCLI評価できます。
+
+手順: [`docs/training/windows_qlora.md`](docs/training/windows_qlora.md)
 
 ---
 

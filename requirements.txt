@@ -1,0 +1,11 @@
+# Install a CUDA-compatible PyTorch build separately first:
+# https://pytorch.org/get-started/locally/
+-r requirements-generation.txt
+accelerate>=1.2,<2
+bitsandbytes>=0.45,<1
+datasets>=3.2,<5
+peft>=0.17,<0.19
+PyYAML>=6.0,<7
+safetensors>=0.4,<1
+transformers>=4.57,<5
+trl>=0.26,<0.29

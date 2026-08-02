@@ -209,6 +209,13 @@ tempCodeRunnerFile.py
 # PyPI configuration file
 .pypirc
 
+# Project NONO generated training artifacts
+/data/processed/
+/outputs/
+/runs/
+/wandb/
+/.nono_cache/
+
 # Marimo
 marimo/_static/
 marimo/_lsp/
