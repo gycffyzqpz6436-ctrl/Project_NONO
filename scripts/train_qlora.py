@@ -3,12 +3,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-import torch
-from datasets import load_dataset
-from peft import LoraConfig
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-from trl import SFTConfig, SFTTrainer
-
 from nono_lora.config import load_yaml, section
 from nono_lora.training import (
     to_prompt_completion,
@@ -25,6 +19,10 @@ def parse_args() -> argparse.Namespace:
 
 
 def torch_dtype(name: str):
+    try:
+        import torch
+    except ImportError as exc:
+        raise RuntimeError("PyTorch is required for training") from exc
     values = {
         "float16": torch.float16,
         "bfloat16": torch.bfloat16,
@@ -37,6 +35,16 @@ def torch_dtype(name: str):
 
 def main() -> int:
     args = parse_args()
+    try:
+        import torch
+        from datasets import load_dataset
+        from peft import LoraConfig
+        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+        from trl import SFTConfig, SFTTrainer
+    except ImportError as exc:
+        raise SystemExit(
+            "Training dependencies are not installed; install requirements.txt first"
+        ) from exc
     config = load_yaml(args.config)
     model_cfg = section(config, "model")
     quant_cfg = section(config, "quantization")

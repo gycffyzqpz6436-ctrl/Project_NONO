@@ -3,10 +3,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-import torch
-from peft import PeftConfig, PeftModel
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-
 from nono_lora.config import load_yaml, section
 
 
@@ -20,6 +16,14 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    try:
+        import torch
+        from peft import PeftConfig, PeftModel
+        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+    except ImportError as exc:
+        raise SystemExit(
+            "Chat dependencies are not installed; install requirements.txt first"
+        ) from exc
     config = load_yaml(args.config)
     inference = section(config, "inference")
     quant = section(config, "quantization")

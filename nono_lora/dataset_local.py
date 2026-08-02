@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import unicodedata
 from collections import Counter, defaultdict
@@ -70,6 +71,62 @@ def load_jsonl_patterns(patterns: Iterable[Path]) -> tuple[list[Path], list[dict
     if not paths:
         raise ValueError("no JSONL files found")
     return paths, [item.record for item in read_jsonl(paths)]
+
+
+def collapse_identical_id_duplicates(
+    records: Iterable[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Collapse only same-ID records whose user/assistant dialogue is identical."""
+    unique: dict[str, dict[str, Any]] = {}
+    collapsed: list[str] = []
+    for record in records:
+        record_id = str(record.get("id", ""))
+        previous = unique.get(record_id)
+        if previous is None:
+            unique[record_id] = record
+            continue
+        if extract_dialogue(previous) != extract_dialogue(record):
+            raise ValueError(
+                f"conflicting duplicate Golden ID {record_id}: dialogue differs"
+            )
+        if record_id not in collapsed:
+            collapsed.append(record_id)
+    return sorted(unique.values(), key=lambda item: int(str(item["id"]))), collapsed
+
+
+def dataset_state(
+    records: list[dict[str, Any]],
+    *,
+    pending_review_file: str | None = None,
+    last_analysis_report: str = "dataset/reports/dataset_analysis.json",
+) -> dict[str, Any]:
+    unique, collapsed = collapse_identical_id_duplicates(records)
+    ids = numeric_ids(unique)
+    maximum = max(ids)
+    start = maximum + 1
+    last_start = max(1, maximum - 49)
+    return {
+        "golden_record_count": len(unique),
+        "maximum_id": f"{maximum:06d}",
+        "next_id": f"{start:06d}",
+        "next_range": f"{start:06d}-{start + 49:06d}",
+        "last_approved_batch": f"{last_start:06d}-{maximum:06d}",
+        "last_analysis_report": last_analysis_report,
+        "pending_review_file": pending_review_file,
+        "collapsed_identical_ids": collapsed,
+        "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+
+
+def write_json_atomic(path: Path, value: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary.write_text(
+        json.dumps(value, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    temporary.replace(path)
 
 
 def numeric_ids(records: Iterable[dict[str, Any]]) -> list[int]:

@@ -216,6 +216,11 @@ tempCodeRunnerFile.py
 /wandb/
 /.nono_cache/
 
+# Local dataset-cycle working files
+/dataset/candidates/
+/dataset/reports/
+/dataset/candidates/review/
+
 # Marimo
 marimo/_static/
 marimo/_lsp/

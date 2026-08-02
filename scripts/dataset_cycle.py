@@ -1,0 +1,342 @@
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Callable
+
+from nono_lora.data import database_record, read_jsonl, training_record, write_jsonl
+from nono_lora.dataset_local import (
+    analyze_records,
+    collapse_identical_id_duplicates,
+    dataset_state,
+    expression_counts,
+    load_jsonl_patterns,
+    render_analysis_markdown,
+    write_json_atomic,
+)
+from nono_lora.dataset_pipeline import extract_dialogue
+from scripts.approve_candidates import approve
+from scripts.create_dataset_draft import load_plan, make_draft_records
+from scripts.import_review_text import batch_id_from_name, import_records
+from scripts.review_candidates import batch_report, render_markdown, review_records
+
+GOLDEN = [Path("dataset/jsonl/*.jsonl")]
+STATE = Path("dataset/state/dataset_state.json")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run a complete local NONO dataset cycle.")
+    sub = parser.add_subparsers(dest="command", required=True)
+    prepare_parser = sub.add_parser("prepare", help="Analyze Golden and create 50 draft slots.")
+    prepare_parser.add_argument("--count", type=int, default=50)
+    prepare_parser.add_argument("--golden", nargs="+", type=Path, default=GOLDEN)
+    prepare_parser.add_argument(
+        "--category-plan", type=Path, default=Path("dataset/category_plan.yaml")
+    )
+    prepare_parser.add_argument(
+        "--review-directory", type=Path, default=Path("dataset/candidates/review")
+    )
+    for name in ("review", "repair"):
+        child = sub.add_parser(name, help=f"{name.title()} a completed review TXT.")
+        child.add_argument("review_file", type=Path)
+        child.add_argument("--golden", nargs="+", type=Path, default=GOLDEN)
+    approval = sub.add_parser("approve", help="Approve, optionally commit and push.")
+    approval.add_argument("review_file", type=Path)
+    approval.add_argument("--reviewer", required=True)
+    approval.add_argument("--golden", nargs="+", type=Path, default=GOLDEN)
+    approval.add_argument("--commit", action="store_true")
+    approval.add_argument("--push", action="store_true")
+    return parser.parse_args()
+
+
+def _load_golden(patterns: list[Path]) -> tuple[list[Path], list[dict], list[str]]:
+    paths, raw = load_jsonl_patterns(patterns)
+    unique, collapsed = collapse_identical_id_duplicates(raw)
+    return paths, unique, collapsed
+
+
+def _write_analysis(records: list[dict]) -> dict[str, Any]:
+    report = analyze_records(records)
+    json_path = Path("dataset/reports/dataset_analysis.json")
+    md_path = Path("dataset/reports/dataset_analysis.md")
+    write_json_atomic(json_path, report)
+    md_path.parent.mkdir(parents=True, exist_ok=True)
+    md_path.write_text(render_analysis_markdown(report), encoding="utf-8", newline="\n")
+    return report
+
+
+def _write_state(records: list[dict], pending: Path | None) -> None:
+    write_json_atomic(
+        STATE,
+        dataset_state(
+            records,
+            pending_review_file=pending.as_posix() if pending else None,
+        ),
+    )
+
+
+def _instructions(
+    review_file: Path,
+    golden_paths: list[Path],
+    records: list[dict],
+    draft: list[dict],
+) -> str:
+    analysis = analyze_records(records)
+    planned = {}
+    for item in draft:
+        category = str(item["category"])
+        planned[category] = planned.get(category, 0) + 1
+    expressions = expression_counts(records[-50:])
+    openings = ", ".join(
+        f"{key}({count})" for key, count in expressions["openings"].most_common(5)
+    )
+    teasing = ", ".join(
+        f"{key}({count})" for key, count in expressions["patterns"].most_common(5)
+    )
+    follow_up_target = sum(bool(item["follow_up_target"]) for item in draft) / len(draft)
+    return f"""# Codex writing instructions
+
+対象TXT: `{review_file.as_posix()}`
+既存Golden: {', '.join(f'`{path.as_posix()}`' for path in golden_paths)}
+
+## 実施内容
+
+- `User:` と `NONO:` の欄だけを50件すべて埋める
+- ID、Category、Pattern、Follow-up、Used topics to avoid、Suggested directionを変更しない
+- 既存Goldenと同じ話題、状況、オチ、言い換えだけの会話を作らない
+- 今回のカテゴリ計画: {planned}
+- 最近多い冒頭: {openings or 'なし'}
+- 最近多い煽り・構文: {teasing or 'なし'}
+- 問い返し目標: {follow_up_target:.0%}（各枠のFollow-up指定を優先）
+
+## NONOキャラクタールール
+
+- 最初から相手の行動や内心を見透かし、断定調で捕まえる
+- 軽い煽りを説明より先に置き、説明は短く話し言葉で
+- からかいを約40%にし、本気の攻撃や先生・相談員口調を避ける
+- 「あ〜あ♪」「へぇ〜？」「ぷっ♡」等でリズムを崩し、会話的な語尾を使う
+- 回答または共感を必ず含め、最後は軽い甘やかしや追い煽り
+
+この段階ではJSONL化、承認、commit、pushを行わない。
+
+Golden解析: {analysis['record_count']}件、次回範囲 {analysis['id']['planned_range']}
+"""
+
+
+def prepare_cycle(
+    *,
+    count: int,
+    golden_patterns: list[Path],
+    category_plan: Path,
+    review_directory: Path,
+    batch_id: str | None = None,
+) -> dict[str, Any]:
+    if count != 50:
+        raise ValueError("prepare requires exactly 50 records")
+    paths, golden, collapsed = _load_golden(golden_patterns)
+    _write_analysis(golden)
+    draft = make_draft_records(golden, load_plan(category_plan), count=count)
+    batch = batch_id or datetime.now().strftime("%Y%m%d-%H%M%S")
+    start, end = draft[0]["id"], draft[-1]["id"]
+    review_file = review_directory / f"nono_draft_{start}_{end}_{batch}.txt"
+    instructions = review_file.with_suffix(".instructions.md")
+    if review_file.exists() or instructions.exists():
+        raise ValueError("prepare output already exists; refusing to overwrite")
+    from nono_lora.dataset_local import render_review_text
+    review_file.parent.mkdir(parents=True, exist_ok=True)
+    review_file.write_text(
+        render_review_text(draft, include_plan=True), encoding="utf-8", newline="\n"
+    )
+    instructions.write_text(
+        _instructions(review_file, paths, golden, draft), encoding="utf-8", newline="\n"
+    )
+    _write_state(golden, review_file)
+    return {
+        "golden_records": len(golden),
+        "collapsed_ids": collapsed,
+        "range": f"{start}-{end}",
+        "review_file": review_file,
+        "instructions_file": instructions,
+    }
+
+
+def review_cycle(
+    review_file: Path, golden_patterns: list[Path]
+) -> tuple[Path, Path, Path, dict[str, Any]]:
+    _, golden, _ = _load_golden(golden_patterns)
+    records, _ = import_records(
+        review_file.read_text(encoding="utf-8-sig"), golden, source=review_file
+    )
+    start, end = records[0]["id"], records[-1]["id"]
+    batch = batch_id_from_name(review_file)
+    candidate = Path(
+        f"dataset/candidates/nono_candidates_{start}_{end}_{batch}.jsonl"
+    )
+    json_output = Path(f"dataset/reports/review_{start}_{end}_{batch}.json")
+    md_output = json_output.with_suffix(".md")
+    if any(path.exists() for path in (candidate, json_output, md_output)):
+        raise ValueError("review output already exists; refusing to overwrite")
+    write_jsonl(candidate, records)
+    report = batch_report(records, review_records(records, golden))
+    write_json_atomic(json_output, report)
+    md_output.write_text(render_markdown(report), encoding="utf-8", newline="\n")
+    _write_state(golden, review_file)
+    return candidate, json_output, md_output, report
+
+
+def _review_report_path(review_file: Path) -> Path:
+    match = re.search(r"_(\d{6})_(\d{6})_(\d{8}-\d{6})$", review_file.stem)
+    if not match:
+        raise ValueError("review filename must contain range and batch ID")
+    return Path(f"dataset/reports/review_{match.group(1)}_{match.group(2)}_{match.group(3)}.json")
+
+
+def repair_cycle(review_file: Path) -> Path:
+    report_path = _review_report_path(review_file)
+    if not report_path.exists():
+        raise ValueError("review report not found; run dataset_cycle review first")
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    records = {
+        item["id"]: item
+        for item in __import__("nono_lora.dataset_local", fromlist=["parse_review_text"])
+        .parse_review_text(review_file.read_text(encoding="utf-8-sig"))
+    }
+    targets = [item for item in report["records"] if item["result"] != "pass"]
+    match = re.search(r"_(\d{6})_(\d{6})_(\d{8}-\d{6})$", review_file.stem)
+    assert match
+    output = review_file.parent / (
+        f"repair_{match.group(1)}_{match.group(2)}_{match.group(3)}.md"
+    )
+    lines = ["# NONO repair instructions", ""]
+    for item in targets:
+        record = records[item["id"]]
+        user, assistant = extract_dialogue(record)
+        planning = record.get("planning", {})
+        lines += [
+            f"## #{item['id']}", "",
+            f"**Current User**\n\n{user}", "",
+            f"**Current NONO**\n\n{assistant}", "",
+            f"- Problems: {'; '.join(item['suggestions'])}",
+            f"- Similar Golden IDs: {', '.join(hit['id'] for hit in item['similar']) or 'none'}",
+            f"- Avoid topics: {', '.join(planning.get('used_topics_to_avoid', [])) or 'none'}",
+            f"- Avoid opening: {item['opening']}",
+            f"- Avoid ending: {'same ending' if item['ending_duplicate'] else 'none identified'}",
+            f"- New direction: {record.get('scenario', '別の未使用の日常場面')}", "",
+        ]
+    output.write_text("\n".join(lines), encoding="utf-8", newline="\n")
+    return output
+
+
+def approve_cycle(
+    review_file: Path,
+    *,
+    reviewer: str,
+    golden_patterns: list[Path],
+    commit: bool,
+    push: bool,
+    input_fn: Callable[[str], str] = input,
+    runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+) -> dict[str, Any]:
+    _, golden, _ = _load_golden(golden_patterns)
+    records, warnings = import_records(
+        review_file.read_text(encoding="utf-8-sig"), golden, source=review_file
+    )
+    report = batch_report(records, review_records(records, golden))
+    summary = report["summary"]
+    start, end = records[0]["id"], records[-1]["id"]
+    database_output = Path(f"dataset/database/nono_database_{start}_{end}.jsonl")
+    training_output = Path(f"dataset/jsonl/nono_dataset_{start}_{end}.jsonl")
+    prompt = (
+        "About to approve:\n"
+        f"  Range: {start}-{end}\n  Records: {len(records)}\n"
+        f"  Warnings: {summary['warning']}\n  Rejects: {summary['reject']}\n"
+        f"  Database output: {database_output}\n  Training output: {training_output}\n"
+        f"  Git commit: {'enabled' if commit else 'disabled'}\n"
+        f"  Git push: {'enabled' if push else 'disabled'}\n\nType APPROVE to continue: "
+    )
+    if input_fn(prompt) != "APPROVE":
+        return {"cancelled": True}
+    if warnings or summary["warning"] or summary["reject"]:
+        raise ValueError("approval requires pass=50, warning=0, reject=0")
+    if database_output.exists() or training_output.exists():
+        raise ValueError("approval output already exists; refusing to overwrite")
+    approved = approve(records, reviewer, set(), golden)
+    write_jsonl(database_output, (database_record(item) for item in approved))
+    write_jsonl(training_output, (training_record(item) for item in approved))
+    for output in (database_output, training_output):
+        loaded = list(read_jsonl([output]))
+        if len(loaded) != 50:
+            raise ValueError(f"post-write validation failed: {output}")
+    _, refreshed, _ = _load_golden(golden_patterns)
+    _write_analysis(refreshed)
+    _write_state(refreshed, None)
+    staged = [database_output, training_output, STATE]
+    if commit:
+        runner(["git", "status", "--short"], check=True, text=True, capture_output=True)
+        runner(["git", "add", "--", *(str(path) for path in staged)], check=True)
+        runner(
+            ["git", "commit", "-m", f"dataset: add NONO conversations {start}-{end}"],
+            check=True,
+        )
+    if push:
+        if not commit:
+            raise ValueError("--push requires --commit")
+        try:
+            runner(["git", "push"], check=True)
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(
+                "push failed; outputs and commit were kept. Retry with: git push"
+            ) from exc
+    return {
+        "cancelled": False,
+        "database_output": database_output,
+        "training_output": training_output,
+        "staged": staged,
+    }
+
+
+def main() -> int:
+    args = parse_args()
+    try:
+        if args.command == "prepare":
+            result = prepare_cycle(
+                count=args.count,
+                golden_patterns=args.golden,
+                category_plan=args.category_plan,
+                review_directory=args.review_directory,
+            )
+            print(
+                "Prepared dataset cycle:\n"
+                f"  Golden records: {result['golden_records']}\n"
+                f"  Planned range: {result['range']}\n"
+                f"  Review file: {result['review_file']}\n"
+                f"  Instructions: {result['instructions_file']}"
+            )
+        elif args.command == "review":
+            candidate, json_path, md_path, report = review_cycle(
+                args.review_file, args.golden
+            )
+            print(f"Candidate: {candidate}\nReports: {json_path}\n         {md_path}")
+            print(f"Summary: {report['summary']}")
+        elif args.command == "repair":
+            print(f"Repair instructions: {repair_cycle(args.review_file)}")
+        else:
+            result = approve_cycle(
+                args.review_file,
+                reviewer=args.reviewer,
+                golden_patterns=args.golden,
+                commit=args.commit,
+                push=args.push,
+            )
+            print("Approval cancelled." if result["cancelled"] else f"Approved: {result}")
+    except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as exc:
+        raise SystemExit(str(exc)) from exc
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
