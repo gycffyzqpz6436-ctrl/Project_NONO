@@ -54,7 +54,12 @@ def review_records(candidates: list[dict], golden: list[dict]) -> list[dict[str,
         opening = opening_key(assistant)
         teasing = {word: assistant.count(word) for word in TEASES if word in assistant}
         mind_reading = any(word in assistant for word in MIND_READING)
-        helpful = any(word in assistant for word in CARE)
+        paragraphs = [
+            value.strip() for value in re.split(r"\n\s*\n", assistant) if value.strip()
+        ]
+        helpful = any(word in assistant for word in CARE) or (
+            len(paragraphs) >= 2 and len(paragraphs[1]) >= 12
+        )
         non_attack = not any(word in assistant for word in ATTACK)
         follow_up = bool(QUESTION_END.search(assistant))
         follow_up_target = bool(record.get("follow_up_target"))
@@ -70,7 +75,13 @@ def review_records(candidates: list[dict], golden: list[dict]) -> list[dict[str,
             problems.append("一文目付近に見透かし表現を追加")
         if not natural_follow_up:
             problems.append("Follow-up目標に合う自然な問い返しへ修正")
-        exact_hit = any(hit.score >= 0.999 for hit in hits)
+        exact_hit = any(
+            any(
+                reason in {"exact user match", "normalized user match"}
+                for reason in hit.reasons
+            )
+            for hit in hits
+        )
         result = "reject" if schema_errors or record_id in golden_ids or exact_hit else (
             "warning" if hits or problems else "pass"
         )

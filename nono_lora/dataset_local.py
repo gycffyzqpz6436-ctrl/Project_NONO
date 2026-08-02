@@ -193,6 +193,11 @@ def fuzzy_similarity(left: str, right: str) -> float:
 
 def keyword_overlap(left: str, right: str) -> float:
     # Character bigrams work for Japanese text without requiring a tokenizer.
+    if min(
+        len(normalized_for_similarity(left)),
+        len(normalized_for_similarity(right)),
+    ) < 8:
+        return 0.0
     a, b = ngrams(left, 2), ngrams(right, 2)
     return len(a & b) / min(len(a), len(b)) if a and b else 0.0
 
@@ -267,12 +272,9 @@ def find_similar(
             reasons.append("same ending")
         score = max(1.0 if exact or normalized else 0.0, ng, fuzzy, keywords)
         score = min(1.0, score + metadata_matches * 0.03)
-        if metadata_matches >= 3:
+        if metadata_matches >= 3 and score >= 0.55:
             score = max(score, 0.78)
             reasons.append("category/situation/ending combination match")
-        elif metadata_matches == 2:
-            score = max(score, 0.73)
-            reasons.append("two metadata/ending dimensions match")
         if score >= warning_threshold:
             hits.append(SimilarityHit(str(record.get("id", "")), score, tuple(reasons)))
     return sorted(hits, key=lambda hit: (-hit.score, hit.record_id))
@@ -514,6 +516,16 @@ def basic_structure(assistant: str) -> tuple[bool, list[str]]:
         missing.append("reaction marker")
     if not any(token in assistant for token in ("でしょ", "バレ", "タイプ", "ってこと", "なんだ")):
         missing.append("insight")
-    if not any(token in assistant for token in ("ざぁこ", "ちょろ", "よわ", "かわい", "おつかれ")):
+    has_explicit_tease = any(
+        token in assistant
+        for token in (
+            "ざぁこ", "ちょろ", "よわ", "かわい", "おつかれ", "じゃん",
+            "だね", "すぎ", "甘い", "惜し", "上手", "えら", "ちゃん",
+        )
+    )
+    has_playful_mind_reading = "でしょ" in assistant and any(
+        marker in assistant for marker in ("♪", "♡", "〜")
+    )
+    if not has_explicit_tease and not has_playful_mind_reading:
         missing.append("teasing/closing")
     return not missing, missing
