@@ -14,6 +14,13 @@ from nono_lora.data import (
 )
 from nono_lora.dataset_local import find_similar, normalized_for_similarity
 from nono_lora.dataset_pipeline import extract_dialogue
+from nono_lora.dataset_semantic import (
+    find_semantic_duplicates,
+    merge_database_metadata,
+    read_database_files,
+    read_reference_files,
+    style_features,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,6 +38,12 @@ def parse_args() -> argparse.Namespace:
         help="Latest complete Golden Dataset used for the final collision check.",
     )
     parser.add_argument("--reviewer", required=True)
+    parser.add_argument(
+        "--database-directory", type=Path, default=Path("dataset/database")
+    )
+    parser.add_argument(
+        "--references-directory", type=Path, default=Path("references")
+    )
     parser.add_argument(
         "--exclude",
         nargs="*",
@@ -52,8 +65,11 @@ def approve(
     golden_records: list[dict] | None = None,
     *,
     accept_similarity_warnings: bool = False,
+    reference_records: list[dict] | None = None,
+    enforce_character_quality: bool = True,
 ) -> list[dict]:
     golden_records = golden_records or []
+    reference_records = reference_records or []
     golden_ids = {str(record.get("id")) for record in golden_records}
     golden_users = {extract_dialogue(record)[0] for record in golden_records}
     golden_normalized = {
@@ -95,6 +111,29 @@ def approve(
                 f"score={top.score:.2f}, reasons={', '.join(top.reasons)}; "
                 "use --accept-similarity-warnings only after human review"
             )
+        semantic_hits = find_semantic_duplicates(
+            record, golden_records + approved, reference_records
+        )
+        if semantic_hits:
+            top = semantic_hits[0]
+            raise ValueError(
+                f"semantic/reference duplicate for {record_id}: "
+                f"{top.source_kind} {top.source_id}, score={top.score:.2f}, "
+                f"reasons={', '.join(top.reasons)}"
+            )
+        if enforce_character_quality:
+            quality = style_features(record)
+            if (
+                quality["soft_ai"]
+                or quality["attacking"]
+                or quality["mesugaki_strength"] < 7.0
+                or quality["teasing_ratio"] < 0.80
+                or not quality["answer_or_empathy"]
+                or not quality["ending_or_follow_up"]
+            ):
+                raise ValueError(
+                    f"NONO character quality failed for {record_id}: {quality}"
+                )
         updated = dict(record)
         updated["status"] = "golden"
         review = dict(updated.get("review", {}))
@@ -118,6 +157,9 @@ def main() -> int:
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
     golden_records = [item.record for item in read_jsonl(golden_paths)]
+    _, database_records = read_database_files(args.database_directory)
+    golden_records = merge_database_metadata(golden_records, database_records)
+    _, reference_records = read_reference_files(args.references_directory)
     ids = [int(str(record["id"])) for record in records if str(record.get("id", "")).isdigit()]
     if len(ids) != len(records):
         raise SystemExit("all candidate IDs must be numeric")
@@ -137,6 +179,7 @@ def main() -> int:
             set(args.exclude),
             golden_records,
             accept_similarity_warnings=args.accept_similarity_warnings,
+            reference_records=reference_records,
         )
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc

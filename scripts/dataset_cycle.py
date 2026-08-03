@@ -23,6 +23,11 @@ from scripts.approve_candidates import approve
 from scripts.create_dataset_draft import load_plan, make_draft_records
 from scripts.import_review_text import batch_id_from_name, import_records
 from scripts.review_candidates import batch_report, render_markdown, review_records
+from nono_lora.dataset_semantic import (
+    merge_database_metadata,
+    read_database_files,
+    read_reference_files,
+)
 
 GOLDEN = [Path("dataset/jsonl/*.jsonl")]
 STATE = Path("dataset/state/dataset_state.json")
@@ -40,16 +45,34 @@ def parse_args() -> argparse.Namespace:
     prepare_parser.add_argument(
         "--review-directory", type=Path, default=Path("dataset/candidates/review")
     )
+    prepare_parser.add_argument(
+        "--database-directory", type=Path, default=Path("dataset/database")
+    )
+    prepare_parser.add_argument(
+        "--references-directory", type=Path, default=Path("references")
+    )
     for name in ("review", "repair"):
         child = sub.add_parser(name, help=f"{name.title()} a completed review TXT.")
         child.add_argument("review_file", type=Path)
         child.add_argument("--golden", nargs="+", type=Path, default=GOLDEN)
+        child.add_argument(
+            "--database-directory", type=Path, default=Path("dataset/database")
+        )
+        child.add_argument(
+            "--references-directory", type=Path, default=Path("references")
+        )
     approval = sub.add_parser("approve", help="Approve, optionally commit and push.")
     approval.add_argument("review_file", type=Path)
     approval.add_argument("--reviewer", required=True)
     approval.add_argument("--golden", nargs="+", type=Path, default=GOLDEN)
     approval.add_argument("--commit", action="store_true")
     approval.add_argument("--push", action="store_true")
+    approval.add_argument(
+        "--database-directory", type=Path, default=Path("dataset/database")
+    )
+    approval.add_argument(
+        "--references-directory", type=Path, default=Path("references")
+    )
     return parser.parse_args()
 
 
@@ -57,6 +80,25 @@ def _load_golden(patterns: list[Path]) -> tuple[list[Path], list[dict], list[str
     paths, raw = load_jsonl_patterns(patterns)
     unique, collapsed = collapse_identical_id_duplicates(raw)
     return paths, unique, collapsed
+
+
+def _load_context(
+    patterns: list[Path],
+    database_directory: Path,
+    references_directory: Path,
+) -> tuple[list[Path], list[dict], list[str], list[Path], list[dict], list[Path], list[dict]]:
+    paths, golden, collapsed = _load_golden(patterns)
+    database_paths, database = read_database_files(database_directory)
+    reference_paths, references = read_reference_files(references_directory)
+    return (
+        paths,
+        merge_database_metadata(golden, database),
+        collapsed,
+        database_paths,
+        database,
+        reference_paths,
+        references,
+    )
 
 
 def _write_analysis(records: list[dict]) -> dict[str, Any]:
@@ -84,6 +126,8 @@ def _instructions(
     golden_paths: list[Path],
     records: list[dict],
     draft: list[dict],
+    database_paths: list[Path],
+    reference_paths: list[Path],
 ) -> str:
     analysis = analyze_records(records)
     planned = {}
@@ -102,12 +146,16 @@ def _instructions(
 
 対象TXT: `{review_file.as_posix()}`
 既存Golden: {', '.join(f'`{path.as_posix()}`' for path in golden_paths)}
+管理用DB: {', '.join(f'`{path.as_posix()}`' for path in database_paths) or 'なし'}
+参考会話: {', '.join(f'`{path.as_posix()}`' for path in reference_paths) or 'なし（referencesへ配置すること）'}
 
 ## 実施内容
 
 - `User:` と `NONO:` の欄だけを50件すべて埋める
 - ID、Category、Pattern、Follow-up、Used topics to avoid、Suggested directionを変更しない
 - 既存Goldenと同じ話題、状況、オチ、言い換えだけの会話を作らない
+- 参考会話はUser文体の参考だけにし、質問・出来事・回答方針を流用しない
+- 煽りを中心（目標80〜90%）にし、優しいAI定型句を中心にしない
 - 今回のカテゴリ計画: {planned}
 - 最近多い冒頭: {openings or 'なし'}
 - 最近多い煽り・構文: {teasing or 'なし'}
@@ -133,11 +181,17 @@ def prepare_cycle(
     golden_patterns: list[Path],
     category_plan: Path,
     review_directory: Path,
+    database_directory: Path = Path("dataset/database"),
+    references_directory: Path = Path("references"),
     batch_id: str | None = None,
 ) -> dict[str, Any]:
     if count != 50:
         raise ValueError("prepare requires exactly 50 records")
-    paths, golden, collapsed = _load_golden(golden_patterns)
+    (
+        paths, golden, collapsed, database_paths, _, reference_paths, _
+    ) = _load_context(
+        golden_patterns, database_directory, references_directory
+    )
     _write_analysis(golden)
     draft = make_draft_records(golden, load_plan(category_plan), count=count)
     batch = batch_id or datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -152,7 +206,11 @@ def prepare_cycle(
         render_review_text(draft, include_plan=True), encoding="utf-8", newline="\n"
     )
     instructions.write_text(
-        _instructions(review_file, paths, golden, draft), encoding="utf-8", newline="\n"
+        _instructions(
+            review_file, paths, golden, draft, database_paths, reference_paths
+        ),
+        encoding="utf-8",
+        newline="\n",
     )
     _write_state(golden, review_file)
     return {
@@ -165,9 +223,14 @@ def prepare_cycle(
 
 
 def review_cycle(
-    review_file: Path, golden_patterns: list[Path]
+    review_file: Path,
+    golden_patterns: list[Path],
+    database_directory: Path = Path("dataset/database"),
+    references_directory: Path = Path("references"),
 ) -> tuple[Path, Path, Path, dict[str, Any]]:
-    _, golden, _ = _load_golden(golden_patterns)
+    _, golden, _, _, _, _, references = _load_context(
+        golden_patterns, database_directory, references_directory
+    )
     records, _ = import_records(
         review_file.read_text(encoding="utf-8-sig"), golden, source=review_file
     )
@@ -181,7 +244,7 @@ def review_cycle(
     if any(path.exists() for path in (candidate, json_output, md_output)):
         raise ValueError("review output already exists; refusing to overwrite")
     write_jsonl(candidate, records)
-    report = batch_report(records, review_records(records, golden))
+    report = batch_report(records, review_records(records, golden, references))
     write_json_atomic(json_output, report)
     md_output.write_text(render_markdown(report), encoding="utf-8", newline="\n")
     _write_state(golden, review_file)
@@ -238,14 +301,18 @@ def approve_cycle(
     golden_patterns: list[Path],
     commit: bool,
     push: bool,
+    database_directory: Path = Path("dataset/database"),
+    references_directory: Path = Path("references"),
     input_fn: Callable[[str], str] = input,
     runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
 ) -> dict[str, Any]:
-    _, golden, _ = _load_golden(golden_patterns)
+    _, golden, _, _, _, _, references = _load_context(
+        golden_patterns, database_directory, references_directory
+    )
     records, warnings = import_records(
         review_file.read_text(encoding="utf-8-sig"), golden, source=review_file
     )
-    report = batch_report(records, review_records(records, golden))
+    report = batch_report(records, review_records(records, golden, references))
     summary = report["summary"]
     start, end = records[0]["id"], records[-1]["id"]
     database_output = Path(f"dataset/database/nono_database_{start}_{end}.jsonl")
@@ -260,11 +327,23 @@ def approve_cycle(
     )
     if input_fn(prompt) != "APPROVE":
         return {"cancelled": True}
-    if warnings or summary["warning"] or summary["reject"]:
+    if (
+        warnings
+        or summary["warning"]
+        or summary["reject"]
+        or summary.get("semantic_similarity_count", 0)
+        or summary.get("style_warnings", [])
+    ):
         raise ValueError("approval requires pass=50, warning=0, reject=0")
     if database_output.exists() or training_output.exists():
         raise ValueError("approval output already exists; refusing to overwrite")
-    approved = approve(records, reviewer, set(), golden)
+    approved = approve(
+        records,
+        reviewer,
+        set(),
+        golden,
+        reference_records=references,
+    )
     write_jsonl(database_output, (database_record(item) for item in approved))
     write_jsonl(training_output, (training_record(item) for item in approved))
     for output in (database_output, training_output):
@@ -308,6 +387,8 @@ def main() -> int:
                 golden_patterns=args.golden,
                 category_plan=args.category_plan,
                 review_directory=args.review_directory,
+                database_directory=args.database_directory,
+                references_directory=args.references_directory,
             )
             print(
                 "Prepared dataset cycle:\n"
@@ -318,7 +399,10 @@ def main() -> int:
             )
         elif args.command == "review":
             candidate, json_path, md_path, report = review_cycle(
-                args.review_file, args.golden
+                args.review_file,
+                args.golden,
+                args.database_directory,
+                args.references_directory,
             )
             print(f"Candidate: {candidate}\nReports: {json_path}\n         {md_path}")
             print(f"Summary: {report['summary']}")
@@ -331,6 +415,8 @@ def main() -> int:
                 golden_patterns=args.golden,
                 commit=args.commit,
                 push=args.push,
+                database_directory=args.database_directory,
+                references_directory=args.references_directory,
             )
             print("Approval cancelled." if result["cancelled"] else f"Approved: {result}")
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as exc:

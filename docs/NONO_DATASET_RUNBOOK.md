@@ -11,6 +11,11 @@ Golden Datasetは、人間が内容を確認して承認した会話だけを置
 ません。生成・類似検査はすべてローカルで行い、外部API、APIキー、通信費に依存し
 ません。会話本文は人間またはCodexがレビューTXTへ書きます。
 
+重複検査では学習用JSONLだけでなく、`dataset/database`のCategory・Scenario・
+PatternをIDで結合します。`references`以下のJSONL、JSON、TXT、Markdownも毎回読み、
+参考質問のコピーや軽い言い換えをrejectします。参考データは自然なUser文体を確認する
+ためだけに使用します。
+
 ## 普段の最短手順
 
 ### 方法A: Codexへ頼む
@@ -47,6 +52,11 @@ python -m scripts.dataset_cycle review dataset/candidates/review/<draft>.txt
 - `pass`: 自動検査で問題なし
 - `warning`: 類似、文体、構成などを人間が再確認
 - `reject`: ID、重複、形式など承認不能
+
+意味重複は、Userの文字一致だけでなく、場所、対象物、出来事、失敗原因、感情、
+回答方針を複合判定します。レポートにはGoldenの類似ID、参考データのパス、類似理由、
+NONOスコア、メスガキ強度、煽り比率、優しいAI判定、見透かし、回答、オチを表示します。
+50件すべてpass、warning/reject 0、意味類似0、バッチ文体警告0でなければ承認できません。
 
 修正箇所だけの指示書は次で作れます。
 

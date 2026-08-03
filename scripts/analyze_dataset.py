@@ -12,6 +12,11 @@ from nono_lora.dataset_local import (
     render_analysis_markdown,
     write_json_atomic,
 )
+from nono_lora.dataset_semantic import (
+    merge_database_metadata,
+    read_database_files,
+    read_reference_files,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,14 +35,29 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--state-output", type=Path, default=Path("dataset/state/dataset_state.json")
     )
+    parser.add_argument(
+        "--database-directory", type=Path, default=Path("dataset/database")
+    )
+    parser.add_argument(
+        "--references-directory", type=Path, default=Path("references")
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    _, raw_records = load_jsonl_patterns(args.inputs)
-    records, _ = collapse_identical_id_duplicates(raw_records)
+    golden_paths, raw_records = load_jsonl_patterns(args.inputs)
+    records, _collapsed = collapse_identical_id_duplicates(raw_records)
+    database_paths, database = read_database_files(args.database_directory)
+    reference_paths, references = read_reference_files(args.references_directory)
+    records = merge_database_metadata(records, database)
     report = analyze_records(records)
+    report["sources"] = {
+        "golden_files": [path.as_posix() for path in golden_paths],
+        "database_files": [path.as_posix() for path in database_paths],
+        "reference_files": [path.as_posix() for path in reference_paths],
+        "reference_records": len(references),
+    }
     args.json_output.parent.mkdir(parents=True, exist_ok=True)
     args.markdown_output.parent.mkdir(parents=True, exist_ok=True)
     args.json_output.write_text(
