@@ -14,6 +14,23 @@ python -m pip install -r requirements-generation.txt
 ネット接続、GPUは不要です。`sentence-transformers`は必須ではなく、
 モデルの自動ダウンロードも行いません。
 
+## Codexへの一度の依頼で承認直前まで進める
+
+Codexへ「次の50件作って」と依頼すると、ルートの`AGENTS.md`に従って
+`prepare`、TXTとinstructionsの生成、50件の執筆、review、本文修正、
+再reviewを同じタスク内で行います。
+
+再reviewでは、元のレビューTXTやGoldenを上書きせず、そのTXTから生成された
+候補JSONLとレビュー結果だけを置換します。
+
+```powershell
+python -m scripts.dataset_cycle review <review-txt> --replace-results
+```
+
+`pass 50`、`warning 0`、`reject 0`になったらTXT全文とレビュー結果を提示して
+停止します。`approve`、commit、pushは、人間が明示的に承認するまで
+実行されません。
+
 ## 1. Golden Datasetを分析
 
 ```powershell

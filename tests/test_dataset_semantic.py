@@ -155,6 +155,17 @@ class CharacterQualityTests(unittest.TestCase):
         ):
             self.assertIn(key, report)
 
+    def test_review_explains_similar_record_and_repair_direction(self):
+        golden = [record("000092", "学校で忘れ物を先生に注意された")]
+        candidate = record("000317", "学校で忘れ物をして先生に注意された")
+        report = review_records([candidate], golden, [])[0]
+        self.assertTrue(report["similar_details"])
+        detail = report["similar_details"][0]
+        self.assertEqual(detail["id"], "000092")
+        self.assertEqual(detail["user"], "学校で忘れ物を先生に注意された")
+        self.assertTrue(detail["reason_labels"])
+        self.assertIn("変更", detail["repair_direction"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,7 @@ import argparse
 import json
 import re
 import subprocess
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -61,6 +62,12 @@ def parse_args() -> argparse.Namespace:
         child.add_argument(
             "--references-directory", type=Path, default=Path("references")
         )
+        if name == "review":
+            child.add_argument(
+                "--replace-results",
+                action="store_true",
+                help="Replace only the derived candidate and review reports for this TXT.",
+            )
     approval = sub.add_parser("approve", help="Approve, optionally commit and push.")
     approval.add_argument("review_file", type=Path)
     approval.add_argument("--reviewer", required=True)
@@ -134,13 +141,28 @@ def _instructions(
     for item in draft:
         category = str(item["category"])
         planned[category] = planned.get(category, 0) + 1
-    expressions = expression_counts(records[-50:])
+    recent = records[-100:]
+    expressions = expression_counts(recent)
     openings = ", ".join(
         f"{key}({count})" for key, count in expressions["openings"].most_common(5)
     )
     teasing = ", ".join(
         f"{key}({count})" for key, count in expressions["patterns"].most_common(5)
     )
+    endings = ", ".join(
+        f"{key}({count})" for key, count in expressions["endings"].most_common(5)
+    )
+    recent_categories = Counter(
+        str(item.get("category", "unknown")) for item in recent
+    )
+    category_ranking = ", ".join(
+        f"{key}({count})" for key, count in recent_categories.most_common(8)
+    )
+    recent_follow_ups = sum(
+        bool(re.search(r"[？?]\s*[♡♪〜～]*\s*$", extract_dialogue(item)[1]))
+        for item in recent
+    )
+    recent_follow_up_rate = recent_follow_ups / len(recent) if recent else 0.0
     follow_up_target = sum(bool(item["follow_up_target"]) for item in draft) / len(draft)
     return f"""# Codex writing instructions
 
@@ -148,18 +170,25 @@ def _instructions(
 既存Golden: {', '.join(f'`{path.as_posix()}`' for path in golden_paths)}
 管理用DB: {', '.join(f'`{path.as_posix()}`' for path in database_paths) or 'なし'}
 参考会話: {', '.join(f'`{path.as_posix()}`' for path in reference_paths) or 'なし（referencesへ配置すること）'}
+分析レポート: `dataset/reports/dataset_analysis.json`, `dataset/reports/dataset_analysis.md`
 
 ## 実施内容
 
+- 執筆前に全Golden {len(records)}件、管理用DB、reference、dataset_analysis、直近100件を読む
+- 執筆前に「今回避ける話題」を内部で決め、50件すべての照合基準にする
 - `User:` と `NONO:` の欄だけを50件すべて埋める
 - ID、Category、Pattern、Follow-up、Used topics to avoid、Suggested directionを変更しない
 - 既存Goldenと同じ話題、状況、オチ、言い換えだけの会話を作らない
 - 参考会話はUser文体の参考だけにし、質問・出来事・回答方針を流用しない
 - 煽りを中心（目標80〜90%）にし、優しいAI定型句を中心にしない
 - 今回のカテゴリ計画: {planned}
-- 最近多い冒頭: {openings or 'なし'}
-- 最近多い煽り・構文: {teasing or 'なし'}
+- 直近100件で多いカテゴリ: {category_ranking or 'なし'}
+- 直近100件で多い冒頭: {openings or 'なし'}
+- 直近100件で多い煽り・構文: {teasing or 'なし'}
+- 直近100件で多い問い返し・オチ: {endings or 'なし'}
+- 直近100件の問い返し率: {recent_follow_up_rate:.0%}
 - 問い返し目標: {follow_up_target:.0%}（各枠のFollow-up指定を優先）
+- 単語だけを変えた言い換え、同じ会話構造、同じ回答方針、同じオチは禁止
 
 ## NONOキャラクタールール
 
@@ -169,7 +198,9 @@ def _instructions(
 - 「あ〜あ♪」「へぇ〜？」「ぷっ♡」等でリズムを崩し、会話的な語尾を使う
 - 回答または共感を必ず含め、最後は軽い甘やかしや追い煽り
 
-この段階ではJSONL化、承認、commit、pushを行わない。
+50件を書いたら `dataset_cycle review` を実行し、warning/rejectを本文修正して再reviewする。
+pass 50・warning 0・reject 0まで繰り返し、人間へレビューTXT全文とレビュー結果を提示する。
+この段階では承認、Golden追加、commit、pushを行わない。
 
 Golden解析: {analysis['record_count']}件、次回範囲 {analysis['id']['planned_range']}
 """
@@ -227,6 +258,8 @@ def review_cycle(
     golden_patterns: list[Path],
     database_directory: Path = Path("dataset/database"),
     references_directory: Path = Path("references"),
+    *,
+    replace_results: bool = False,
 ) -> tuple[Path, Path, Path, dict[str, Any]]:
     _, golden, _, _, _, _, references = _load_context(
         golden_patterns, database_directory, references_directory
@@ -241,7 +274,9 @@ def review_cycle(
     )
     json_output = Path(f"dataset/reports/review_{start}_{end}_{batch}.json")
     md_output = json_output.with_suffix(".md")
-    if any(path.exists() for path in (candidate, json_output, md_output)):
+    if not replace_results and any(
+        path.exists() for path in (candidate, json_output, md_output)
+    ):
         raise ValueError("review output already exists; refusing to overwrite")
     write_jsonl(candidate, records)
     report = batch_report(records, review_records(records, golden, references))
@@ -403,6 +438,7 @@ def main() -> int:
                 args.golden,
                 args.database_directory,
                 args.references_directory,
+                replace_results=args.replace_results,
             )
             print(f"Candidate: {candidate}\nReports: {json_path}\n         {md_path}")
             print(f"Summary: {report['summary']}")

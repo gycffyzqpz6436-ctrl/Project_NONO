@@ -48,6 +48,82 @@ def _natural_user(user: str) -> bool:
     return 2 <= len(user) <= 160 and not re.search(r"(です。){3,}|(?:。){3,}", user)
 
 
+def _reason_label(reason: str) -> str:
+    labels = {
+        "exact user match": "User全文が完全一致",
+        "normalized user match": "表記を正規化するとUserが一致",
+        "same category": "カテゴリが同じ",
+        "same situation": "状況設定が同じ",
+        "same ending": "最後のオチ・問い返しが同じ",
+        "category/situation/ending combination match": "カテゴリ・状況・オチの組合せが同じ",
+    }
+    if reason in labels:
+        return labels[reason]
+    if reason.startswith("same event/situation:"):
+        return "場所・出来事・悩みの核が同じ"
+    if reason.startswith("same problem flow:"):
+        return "問題の発生から困るまでの流れが同じ"
+    if reason.startswith("same answer policy:"):
+        return "NONOの回答方針が同じ"
+    if reason.startswith("same ending/question flow="):
+        return "最後の煽り・問い返しの流れが近い"
+    if reason.startswith("same answer/paragraph flow:"):
+        return "回答と段落構成が同じ"
+    if reason.startswith("same teasing vocabulary:"):
+        return "煽り語の組合せが同じ"
+    if "n-gram" in reason or "RapidFuzz" in reason or "wording similarity" in reason:
+        return "単語・言い回しが近い"
+    if "keyword overlap" in reason:
+        return "主要キーワードが重なる"
+    return reason
+
+
+def _repair_direction(reasons: list[str]) -> str:
+    labels = {_reason_label(reason) for reason in reasons}
+    changes = []
+    if "場所・出来事・悩みの核が同じ" in labels or "問題の発生から困るまでの流れが同じ" in labels:
+        changes.append("中心となる出来事を別種の行動へ変更")
+    if "状況設定が同じ" in labels or "カテゴリ・状況・オチの組合せが同じ" in labels:
+        changes.append("場所・登場人物・失敗原因・結末をまとめて変更")
+    if "NONOの回答方針が同じ" in labels or "回答と段落構成が同じ" in labels:
+        changes.append("助言の目的とNONOの切り返し方を変更")
+    if "最後のオチ・問い返しが同じ" in labels or "最後の煽り・問い返しの流れが近い" in labels:
+        changes.append("質問終わりを避け、別の比喩か言い切りの追い煽りへ変更")
+    if "煽り語の組合せが同じ" in labels:
+        changes.append("同じ煽り語を使わず、状況描写ベースの皮肉へ変更")
+    if not changes:
+        changes.append("単語の置換ではなく、場所・感情・回答・オチを別物へ変更")
+    return "。".join(dict.fromkeys(changes)) + "。"
+
+
+def _similarity_details(
+    hits: list[dict[str, Any]],
+    sources: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    details = []
+    for hit in hits:
+        source = sources.get(str(hit["id"]))
+        old_user, old_assistant = extract_dialogue(source) if source else ("", "")
+        reasons = list(hit.get("reasons", []))
+        details.append(
+            {
+                **hit,
+                "user": old_user,
+                "assistant_ending": next(
+                    (
+                        line.strip()
+                        for line in reversed(old_assistant.splitlines())
+                        if line.strip()
+                    ),
+                    "",
+                ),
+                "reason_labels": list(dict.fromkeys(_reason_label(x) for x in reasons)),
+                "repair_direction": _repair_direction(reasons),
+            }
+        )
+    return details
+
+
 def review_records(
     candidates: list[dict],
     golden: list[dict],
@@ -66,6 +142,9 @@ def review_records(
         semantic_hits = find_semantic_duplicates(
             record, golden + prior, references
         )
+        source_records = {
+            str(item.get("id", "")): item for item in golden + prior + references
+        }
         structure_ok, missing = basic_structure(assistant)
         schema_errors = validate_record(LocatedRecord(record, Path("<candidate>"), index))
         opening = opening_key(assistant)
@@ -131,9 +210,15 @@ def review_records(
                 "result": result,
                 "overall_score": score,
                 "similar": [hit.as_dict() for hit in hits[:5]],
+                "similar_details": _similarity_details(
+                    [hit.as_dict() for hit in hits[:5]], source_records
+                ),
                 "semantic_similar": [
                     hit.as_dict() for hit in semantic_hits[:8]
                 ],
+                "semantic_details": _similarity_details(
+                    [hit.as_dict() for hit in semantic_hits[:8]], source_records
+                ),
                 "similar_golden_ids": [
                     hit.source_id for hit in semantic_hits
                     if hit.source_kind == "golden"
@@ -264,12 +349,28 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"{hit['id']}={hit['score']:.2f} ({'; '.join(hit['reasons'])})"
             for hit in item["similar"]
         ) or "none"
+        detail_lines = []
+        seen = set()
+        for hit in item["similar_details"] + item["semantic_details"]:
+            key = (hit["id"], tuple(hit["reason_labels"]))
+            if key in seen:
+                continue
+            seen.add(key)
+            detail_lines += [
+                f"  - ⚠ #{hit['id']} と類似（score {hit['score']:.2f}）",
+                f"    - 既存User: {hit['user'] or '取得不可'}",
+                f"    - 理由: {' / '.join(hit['reason_labels']) or '類似スコア閾値超過'}",
+                f"    - 既存オチ: {hit['assistant_ending'] or '取得不可'}",
+                f"    - 修正方向: {hit['repair_direction']}",
+            ]
         lines += [
             f"## #{item['id']} — {item['result']} ({item['overall_score']}/100)", "",
             f"- Similar: {similar}",
             f"- Semantic Golden IDs: {', '.join(item['similar_golden_ids']) or 'none'}",
             f"- Similar references: {', '.join(item['similar_references']) or 'none'}",
             f"- Semantic reasons: {'; '.join(item['semantic_reasons']) or 'none'}",
+            "- Detailed similarity:",
+            *(detail_lines or ["  - none"]),
             f"- Topic/situation/ending duplicate: {item['user_topic_duplicate']} / "
             f"{item['situation_duplicate']} / {item['ending_duplicate']}",
             f"- Opening: {item['opening']} (past {item['past_opening_count']})",

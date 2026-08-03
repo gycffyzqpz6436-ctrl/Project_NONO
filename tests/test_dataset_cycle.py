@@ -12,7 +12,7 @@ from nono_lora.dataset_local import (
     dataset_state,
     render_review_text,
 )
-from scripts.dataset_cycle import approve_cycle, prepare_cycle, repair_cycle
+from scripts.dataset_cycle import approve_cycle, prepare_cycle, repair_cycle, review_cycle
 
 
 def record(number: int, *, user: str | None = None, assistant: str | None = None):
@@ -78,7 +78,10 @@ class DatasetCycleTests(unittest.TestCase):
             )
             instructions = result["instructions_file"].read_text(encoding="utf-8")
             self.assertIn("User:", instructions)
-            self.assertIn("JSONL化、承認、commit、pushを行わない", instructions)
+            self.assertIn("全Golden 300件", instructions)
+            self.assertIn("直近100件で多いカテゴリ", instructions)
+            self.assertIn("今回避ける話題", instructions)
+            self.assertIn("承認、Golden追加、commit、pushを行わない", instructions)
             state = json.loads(Path("dataset/state/dataset_state.json").read_text("utf-8"))
             self.assertEqual(state["golden_record_count"], 300)
             self.assertEqual(state["next_id"], "000301")
@@ -137,6 +140,32 @@ class DatasetCycleTests(unittest.TestCase):
             text = output.read_text(encoding="utf-8")
             self.assertIn("#000301", text)
             self.assertNotIn("#000302", text)
+
+    def test_review_can_replace_only_derived_results(self):
+        with TemporaryDirectory() as directory, WorkingDirectory(Path(directory)):
+            root = Path(directory)
+            self._workspace(root)
+            review = root / "dataset/candidates/review/nono_draft_000301_000350_20260802-120000.txt"
+            review.parent.mkdir(parents=True)
+            review.write_text(
+                render_review_text(
+                    [record(i) for i in range(301, 351)], include_plan=True
+                ),
+                encoding="utf-8",
+            )
+            first = review_cycle(
+                review,
+                [Path("dataset/jsonl/*.jsonl")],
+            )
+            with self.assertRaisesRegex(ValueError, "already exists"):
+                review_cycle(review, [Path("dataset/jsonl/*.jsonl")])
+            second = review_cycle(
+                review,
+                [Path("dataset/jsonl/*.jsonl")],
+                replace_results=True,
+            )
+            self.assertEqual(first[0], second[0])
+            self.assertTrue(first[0].exists())
 
     def test_approve_requires_exact_confirmation(self):
         with TemporaryDirectory() as directory, WorkingDirectory(Path(directory)):
