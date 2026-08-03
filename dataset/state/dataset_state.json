@@ -1,11 +1,11 @@
 {
-  "golden_record_count": 500,
-  "maximum_id": "000500",
-  "next_id": "000501",
-  "next_range": "000501-000550",
-  "last_approved_batch": "000451-000500",
+  "golden_record_count": 550,
+  "maximum_id": "000550",
+  "next_id": "000551",
+  "next_range": "000551-000600",
+  "last_approved_batch": "000501-000550",
   "last_analysis_report": "dataset/reports/dataset_analysis.json",
   "pending_review_file": null,
   "collapsed_identical_ids": [],
-  "updated_at": "2026-08-03T19:51:35+09:00"
+  "updated_at": "2026-08-03T21:03:19+09:00"
 }
