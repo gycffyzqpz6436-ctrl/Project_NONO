@@ -29,6 +29,7 @@ TEASES = ("ざぁこ", "ちょろ〜い", "よわ〜", "かわい〜", "バレ�
 MIND_READING = ("でしょ", "バレ", "思って", "つもり", "また", "どうせ", "見えて")
 CARE = ("大丈夫", "でき", "いい", "えら", "休", "試して", "わかる", "好き")
 ATTACK = ("死ね", "消えろ", "ゴミ", "クズ", "きもい")
+SYNTAX_MIND_PATTERNS = ("でしょ", "顔して", "つもり", "思って", "バレ", "どうせ")
 
 
 def parse_args() -> argparse.Namespace:
@@ -124,6 +125,93 @@ def _similarity_details(
     return details
 
 
+def _ending_decoration(assistant: str) -> str:
+    ending = next(
+        (line.strip() for line in reversed(assistant.splitlines()) if line.strip()),
+        "",
+    )
+    match = re.search(r"([〜～？?♡♪。！!…]+)$", ending)
+    return match.group(1).replace("～", "〜") if match else "none"
+
+
+def _syntax_signature(assistant: str) -> dict[str, Any]:
+    paragraphs = [
+        value.strip() for value in re.split(r"\n\s*\n", assistant) if value.strip()
+    ]
+    lengths = tuple(
+        "short" if len(value) < 28 else "medium" if len(value) < 60 else "long"
+        for value in paragraphs
+    )
+    return {
+        "paragraph_count": len(paragraphs),
+        "length_shape": lengths,
+        "mind_patterns": tuple(
+            word for word in SYNTAX_MIND_PATTERNS if word in assistant
+        ),
+        "opening": opening_key(assistant),
+        "ending_decoration": _ending_decoration(assistant),
+        "question_ending": bool(QUESTION_END.search(assistant)),
+    }
+
+
+def _recent_syntax_hits(
+    candidate: dict[str, Any],
+    recent_golden: list[dict[str, Any]],
+    *,
+    threshold: float = 0.78,
+) -> list[dict[str, Any]]:
+    _, assistant = extract_dialogue(candidate)
+    current = _syntax_signature(assistant)
+    hits = []
+    for source in recent_golden:
+        _, old_assistant = extract_dialogue(source)
+        previous = _syntax_signature(old_assistant)
+        score = 0.0
+        reasons = []
+        if current["paragraph_count"] == previous["paragraph_count"]:
+            score += 0.20
+            reasons.append(f"同じ段落数({current['paragraph_count']})")
+        if current["length_shape"] == previous["length_shape"]:
+            score += 0.20
+            reasons.append("同じ段落長パターン")
+        current_mind = set(current["mind_patterns"])
+        previous_mind = set(previous["mind_patterns"])
+        if current_mind or previous_mind:
+            overlap = len(current_mind & previous_mind) / len(
+                current_mind | previous_mind
+            )
+            score += 0.20 * overlap
+            if overlap:
+                reasons.append(
+                    "同じ見透かし構文: " + "、".join(sorted(current_mind & previous_mind))
+                )
+        if current["question_ending"] == previous["question_ending"]:
+            score += 0.15
+            reasons.append("同じ質問終わり区分")
+        if current["ending_decoration"] == previous["ending_decoration"]:
+            score += 0.15
+            reasons.append(
+                f"同じ語尾装飾({current['ending_decoration']})"
+            )
+        if current["opening"] == previous["opening"]:
+            score += 0.10
+            reasons.append(f"同じ冒頭({current['opening']})")
+        if score >= threshold:
+            old_user, _ = extract_dialogue(source)
+            hits.append(
+                {
+                    "id": str(source.get("id", "")),
+                    "score": round(score, 4),
+                    "user": old_user,
+                    "reasons": reasons,
+                    "repair_direction": (
+                        "段落数、見透かし方、説明位置、語尾のうち二つ以上を変更する。"
+                    ),
+                }
+            )
+    return sorted(hits, key=lambda item: (-item["score"], item["id"]))[:5]
+
+
 def review_records(
     candidates: list[dict],
     golden: list[dict],
@@ -135,6 +223,7 @@ def review_records(
     golden_ids = {str(item.get("id")) for item in golden}
     reports: list[dict[str, Any]] = []
     prior: list[dict] = []
+    recent_golden = golden[-100:]
     for index, record in enumerate(candidates, 1):
         record_id = str(record.get("id", ""))
         user, assistant = extract_dialogue(record)
@@ -161,6 +250,7 @@ def review_records(
         follow_up_target = bool(record.get("follow_up_target"))
         natural_follow_up = follow_up == follow_up_target or not follow_up_target
         style = style_features(record)
+        recent_syntax = _recent_syntax_hits(record, recent_golden)
         problems = list(schema_errors) + list(missing)
         if not _natural_user(user):
             problems.append("User文を高校生・若者の自然な短文へ調整")
@@ -230,6 +320,7 @@ def review_records(
                 "semantic_reasons": sorted(
                     {reason for hit in semantic_hits for reason in hit.reasons}
                 ),
+                "recent_100_syntax_similar": recent_syntax,
                 "user_topic_duplicate": any(
                     any("user match" in reason or "keyword" in reason for reason in hit.reasons)
                     for hit in hits
@@ -295,12 +386,81 @@ def batch_report(records: list[dict], reports: list[dict]) -> dict[str, Any]:
         word for item in reports for word, count in item["teasing_expressions"].items()
         for _ in range(count)
     )
-    structures = [str(item.get("conversation_type", "unspecified")) for item in records]
-    consecutive = [
-        {"index": index + 1, "pattern": structures[index]}
-        for index in range(1, len(structures))
-        if structures[index] == structures[index - 1]
+    assistants = [extract_dialogue(item)[1] for item in records]
+    structures = [
+        (
+            str(item.get("conversation_type", "unspecified")),
+            tuple(_syntax_signature(assistant)["length_shape"]),
+            tuple(_syntax_signature(assistant)["mind_patterns"]),
+            _syntax_signature(assistant)["question_ending"],
+        )
+        for item, assistant in zip(records, assistants)
     ]
+    consecutive = []
+    start = 0
+    for index in range(1, len(structures) + 1):
+        if index < len(structures) and structures[index] == structures[start]:
+            continue
+        run_length = index - start
+        if run_length >= 3:
+            consecutive.append(
+                {
+                    "start_id": str(records[start].get("id", "")),
+                    "end_id": str(records[index - 1].get("id", "")),
+                    "count": run_length,
+                    "pattern": structures[start][0],
+                }
+            )
+            for item in reports[start:index]:
+                item["suggestions"].append("同一構文が3件以上連続している")
+                if item["result"] == "pass":
+                    item["result"] = "warning"
+        start = index
+    ending_runs = []
+    decorations = [_ending_decoration(assistant) for assistant in assistants]
+    start = 0
+    for index in range(1, len(decorations) + 1):
+        if index < len(decorations) and decorations[index] == decorations[start]:
+            continue
+        run_length = index - start
+        if run_length >= 5:
+            ending_runs.append(
+                {
+                    "start_id": str(records[start].get("id", "")),
+                    "end_id": str(records[index - 1].get("id", "")),
+                    "count": run_length,
+                    "ending": decorations[start],
+                }
+            )
+            for item in reports[start:index]:
+                item["suggestions"].append("同じ語尾が5件以上連続している")
+                if item["result"] == "pass":
+                    item["result"] = "warning"
+        start = index
+    desho_count = sum("でしょ" in assistant for assistant in assistants)
+    desho_rate = desho_count / len(assistants) if assistants else 0.0
+    phrase_counts = {
+        phrase: sum(assistant.count(phrase) for assistant in assistants)
+        for phrase in ("でしょ", "ちゃんと", "次は")
+    }
+    if desho_rate > 0.40:
+        style_warnings.append(
+            f"'でしょ' rate {desho_rate:.1%} exceeds 40%"
+        )
+    for phrase in ("ちゃんと", "次は"):
+        if phrase_counts[phrase] > max(2, len(records) // 10):
+            style_warnings.append(
+                f"'{phrase}' used {phrase_counts[phrase]} times; replace intentionally"
+            )
+    if consecutive:
+        style_warnings.append(
+            f"same syntax used 3+ times consecutively in {len(consecutive)} run(s)"
+        )
+    if ending_runs:
+        style_warnings.append(
+            f"same ending used 5+ times consecutively in {len(ending_runs)} run(s)"
+        )
+    results = Counter(item["result"] for item in reports)
     return {
         "records": reports,
         "summary": {
@@ -314,6 +474,12 @@ def batch_report(records: list[dict], reports: list[dict]) -> dict[str, Any]:
             "opening_ranking": dict(openings.most_common()),
             "teasing_ranking": dict(teasing.most_common()),
             "consecutive_syntax": consecutive,
+            "consecutive_endings": ending_runs,
+            "desho_rate": desho_rate,
+            "phrase_counts": phrase_counts,
+            "recent_100_syntax_similarity_count": sum(
+                bool(item["recent_100_syntax_similar"]) for item in reports
+            ),
             "similarity_count": sum(bool(item["similar"]) for item in reports),
             "semantic_similarity_count": sum(
                 bool(item["semantic_similar"]) for item in reports
@@ -336,6 +502,10 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Follow-up rate: {summary['follow_up_rate']:.1%}",
         f"- Similarity warnings: {summary['similarity_count']}",
         f"- Semantic/reference warnings: {summary['semantic_similarity_count']}",
+        f"- Recent-100 syntax similarities: "
+        f"{summary['recent_100_syntax_similarity_count']}",
+        f"- 'でしょ' rate: {summary['desho_rate']:.1%}",
+        f"- Phrase counts: {summary['phrase_counts']}",
         f"- Batch style warnings: {summary['style_warnings'] or 'none'}",
         f"- Needs fix: {', '.join(summary['needs_fix']) or 'none'}", "",
         "## Batch distribution", "",
@@ -343,6 +513,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Openings: {summary['opening_ranking']}",
         f"- Teasing: {summary['teasing_ranking']}",
         f"- Consecutive syntax: {summary['consecutive_syntax'] or 'none'}", "",
+        f"- Consecutive endings: {summary['consecutive_endings'] or 'none'}", "",
     ]
     for item in report["records"]:
         similar = ", ".join(
@@ -369,6 +540,15 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"- Semantic Golden IDs: {', '.join(item['similar_golden_ids']) or 'none'}",
             f"- Similar references: {', '.join(item['similar_references']) or 'none'}",
             f"- Semantic reasons: {'; '.join(item['semantic_reasons']) or 'none'}",
+            "- Recent 100 syntax similarity:",
+            *(
+                [
+                    f"  - #{hit['id']}={hit['score']:.2f}: "
+                    f"{' / '.join(hit['reasons'])}; {hit['repair_direction']}"
+                    for hit in item["recent_100_syntax_similar"]
+                ]
+                or ["  - none"]
+            ),
             "- Detailed similarity:",
             *(detail_lines or ["  - none"]),
             f"- Topic/situation/ending duplicate: {item['user_topic_duplicate']} / "

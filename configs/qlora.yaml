@@ -53,6 +53,8 @@ training:
 
 inference:
   max_new_tokens: 256
+  do_sample: true
   temperature: 0.8
   top_p: 0.9
   repetition_penalty: 1.05
+  no_repeat_ngram_size: 3

@@ -6,6 +6,29 @@ from pathlib import Path
 from nono_lora.config import load_yaml, section
 
 
+def generation_kwargs(inference: dict, *, pad_token_id: int) -> dict:
+    """Build generation settings from YAML without requiring model imports."""
+    return {
+        "max_new_tokens": int(inference.get("max_new_tokens", 256)),
+        "do_sample": bool(inference.get("do_sample", True)),
+        "temperature": float(inference.get("temperature", 0.8)),
+        "top_p": float(inference.get("top_p", 0.9)),
+        "repetition_penalty": float(inference.get("repetition_penalty", 1.05)),
+        "no_repeat_ngram_size": int(inference.get("no_repeat_ngram_size", 3)),
+        "pad_token_id": pad_token_id,
+    }
+
+
+def generate(model, inputs, tokenizer, inference: dict):
+    return model.generate(
+        **inputs,
+        **generation_kwargs(
+            inference,
+            pad_token_id=tokenizer.eos_token_id,
+        ),
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Chat with a trained NONO adapter.")
     parser.add_argument("--adapter", type=Path, default=Path("outputs/nono-qlora"))
@@ -82,17 +105,7 @@ def main() -> int:
             return_dict=True,
         ).to(model.device)
         with torch.inference_mode():
-            output = model.generate(
-                **inputs,
-                max_new_tokens=int(inference.get("max_new_tokens", 256)),
-                do_sample=True,
-                temperature=float(inference.get("temperature", 0.8)),
-                top_p=float(inference.get("top_p", 0.9)),
-                repetition_penalty=float(
-                    inference.get("repetition_penalty", 1.05)
-                ),
-                pad_token_id=tokenizer.eos_token_id,
-            )
+            output = generate(model, inputs, tokenizer, inference)
         new_tokens = output[0, inputs["input_ids"].shape[1] :]
         response = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
         print(f"NONO> {response}")

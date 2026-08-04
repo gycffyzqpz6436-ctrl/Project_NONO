@@ -9,7 +9,7 @@ from nono_lora.dataset_semantic import (
     read_reference_files,
     style_features,
 )
-from scripts.review_candidates import review_records
+from scripts.review_candidates import batch_report, review_records
 from scripts.approve_candidates import approve
 
 
@@ -165,6 +165,57 @@ class CharacterQualityTests(unittest.TestCase):
         self.assertEqual(detail["user"], "学校で忘れ物を先生に注意された")
         self.assertTrue(detail["reason_labels"])
         self.assertIn("変更", detail["repair_direction"])
+
+    def test_review_reports_recent_100_syntax_similarity(self):
+        golden = [
+            record(
+                f"{index:06d}",
+                f"既存質問{index}",
+                (
+                    "独自反応\n\n説明だけを置く文章です〜\n\n"
+                    "質問では終わらない独自の締め♪"
+                ),
+            )
+            for index in range(1, 101)
+        ]
+        golden[-1] = record(
+            "000100",
+            "直近の似た構文",
+            (
+                "ぷっ♡　また余裕ぶって確認を飛ばしたでしょ♪\n\n"
+                "一度一覧を見直せば答えは出る〜\n\n"
+                "焦って自分で罠へ入るの、ほんと単純でかわい〜♡"
+            ),
+        )
+        candidate = record("000501", "新しい別の話題")
+        report = review_records([candidate], golden, [])[0]
+        self.assertTrue(report["recent_100_syntax_similar"])
+        self.assertEqual(
+            report["recent_100_syntax_similar"][0]["id"], "000100"
+        )
+
+    def test_batch_limits_desho_syntax_and_ending_runs(self):
+        records = [
+            record(
+                f"{index:06d}",
+                f"固有質問{index}",
+                (
+                    "ぷっ♡　また同じことをしたでしょ♪\n\n"
+                    "一覧を見れば分かる〜\n\n"
+                    "単純ちゃん♡"
+                ),
+                conversation_type="same_pattern",
+            )
+            for index in range(1, 6)
+        ]
+        reports = review_records(records, [], [])
+        batch = batch_report(records, reports)
+        self.assertGreater(batch["summary"]["desho_rate"], 0.40)
+        self.assertTrue(batch["summary"]["consecutive_syntax"])
+        self.assertTrue(batch["summary"]["consecutive_endings"])
+        self.assertTrue(
+            any("'でしょ' rate" in warning for warning in batch["summary"]["style_warnings"])
+        )
 
 
 if __name__ == "__main__":

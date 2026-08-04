@@ -186,6 +186,20 @@ python -m scripts.chat_cli `
 - `/reset`: 会話履歴を消去
 - `/exit`: 終了
 
+生成パラメータは`configs/qlora.yaml`の`inference`で変更できます。
+
+```yaml
+inference:
+  max_new_tokens: 256
+  do_sample: true
+  temperature: 0.8
+  top_p: 0.9
+  repetition_penalty: 1.05
+  no_repeat_ngram_size: 3
+```
+
+`no_repeat_ngram_size: 3`により、同一3-gramの反復生成を抑制します。
+
 GPUが使えない場合、対話CLIは4-bitを無効化してCPUへフォールバックします。
 3BモデルのCPU推論は遅く、多くのRAMを使う可能性があります。
 
